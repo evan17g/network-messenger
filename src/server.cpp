@@ -69,7 +69,7 @@ int main() {
 
     // now can use fd to send and recieve data
     // read message header from client
-    int msg_length;
+    size_t msg_length;
     size_t total_read = 0;
     char msg_length_buf[4];
     while (total_read < 4) {

@@ -17,12 +17,6 @@ int main() {
 
     const char* port = "7011";
     const char* server_ip = std::getenv("HOST_ADDR");
-    if (!server_ip) {
-        std::cout << "Null" << std::endl;
-        exit(1);
-    }
-    std::cout << server_ip << std::endl;
-    exit(1);
     char server_addr[INET_ADDRSTRLEN];
 
     int status;
