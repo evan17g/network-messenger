@@ -7,10 +7,22 @@
 #include <string>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <cstdlib>
+
+#include <dotenv.h>
 
 int main() {
+    // Load variables from the .env file
+    dotenv::init();
+
     const char* port = "7011";
-    const char* server_ip = "172.24.220.240";
+    const char* server_ip = std::getenv("HOST_ADDR");
+    if (!server_ip) {
+        std::cout << "Null" << std::endl;
+        exit(1);
+    }
+    std::cout << server_ip << std::endl;
+    exit(1);
     char server_addr[INET_ADDRSTRLEN];
 
     int status;
