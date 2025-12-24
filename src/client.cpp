@@ -56,7 +56,9 @@ int main() {
         throw std::runtime_error("Failed to connect with socket." + std::string(strerror(errno)));
     }
 
-    std::cout << "Connected to server at " << server_ip << " on port " << port << std::endl;
+    std::cout << "Connected to server at " << server_ip << " on port " << port << "\n" << std::endl;
+
+    
 
     // now send and recieve
     std::string msg;
@@ -90,4 +92,9 @@ int main() {
 
     close(sockfd);
     return 0;
+}
+
+void PrintAccounts() {
+    std::cout << "Available Accounts:" << std::endl;
+    
 }
