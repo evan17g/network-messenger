@@ -63,17 +63,23 @@ int main() {
     std::cout << "Connected to server at " << server_ip << " on port " << port << "\n" << std::endl;
 
 
-
     // now send and recieve
-    std::string request = "GET_ACCOUNTS|0|0";
-
-    SendRequest(sockfd, request);
+    SendRequest(sockfd, "GET_ACCOUNTS|0|0");
     std::string response = RecieveResponse(sockfd);
+    std::cout << response << std::endl;
 
-    std::cout << "----- Current Accounts -----" << std::endl;
+    int user_id = 0;
+    std::cout << "Please type the Account ID that you wish to use: ";
+    std::cin >> user_id;
+    std::cout << std::endl;
+
+    std::string request = "GET_CONVERSATIONS|" + std::to_string(user_id) + "|0";
+    SendRequest(sockfd, request);
+    response = RecieveResponse(sockfd);
     std::cout << response << std::endl;
 
     // close connections
+    SendRequest(sockfd, "QUIT|0|0");
     close(sockfd);
     sqlite3_close(db);
     return 0;

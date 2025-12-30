@@ -135,14 +135,18 @@ void handle_client(int client_fd) {
             std::string response;
             switch (req.type) {
                 case QUIT:
-                    // send quit response
+                    running = false;
                     break;
                 case GET_ACCOUNTS:
                     response = GetAccounts(db);
                     SendResponse(client_fd, response);
                     break;
+                case GET_CONVERSATIONS:
+                    response = GetConversations(req.user_id, db);
+                    SendResponse(client_fd, response);
+                    break;
                 default:
-                    exit(1);
+                    running = false;
                     break;
             }
         }
@@ -155,6 +159,7 @@ void handle_client(int client_fd) {
 
 std::string GetAccounts(sqlite3* db) {
     std::stringstream ss;
+    ss << "----- Current Accounts -----" << std::endl;
 
     sqlite3_stmt* stmt;
     const char* sql = "SELECT * FROM Users;";
@@ -176,6 +181,58 @@ std::string GetAccounts(sqlite3* db) {
         std::string space(blank_space, ' ');
         
         ss << "ID: " << user_id << space << " Username: " << user_name << std::endl; 
+    }
+
+    sqlite3_finalize(stmt);
+    return ss.str();
+}
+
+std::string GetConversations(const int& user_id, sqlite3* db) {
+    std::stringstream ss;
+    ss << "----- Conversations -----" << std::endl;
+
+    sqlite3_stmt* stmt;
+    const char* sql = R"sql(
+    SELECT 
+        c.conversation_id, 
+        CASE WHEN c.user_id_1 = ? THEN u2.user_name
+        ELSE u1.user_name
+        END AS other_user_name,
+        c.last_updated       
+    FROM Conversations c 
+    JOIN Users u1 ON c.user_id_1 = u1.user_id
+    JOIN Users u2 ON c.user_id_2 = u2.user_id
+    WHERE c.user_id_1 = ? OR c.user_id_2 = ? 
+    ORDER BY c.last_updated DESC;)sql";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to prepare sql statement: " << sqlite3_errmsg(db) << std::endl;
+    }
+
+    if (sqlite3_bind_int(stmt, 1, user_id) != SQLITE_OK) {
+        std::cerr << "Failed to bind user_id to sql statement: " << sqlite3_errmsg(db) << std::endl;
+    }
+    if (sqlite3_bind_int(stmt, 2, user_id) != SQLITE_OK) {
+        std::cerr << "Failed to bind user_id to sql statement: " << sqlite3_errmsg(db) << std::endl;
+    }
+    if (sqlite3_bind_int(stmt, 3, user_id) != SQLITE_OK) {
+        std::cerr << "Failed to bind user_id to sql statement: " << sqlite3_errmsg(db) << std::endl;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int conversation_id = sqlite3_column_int(stmt, 0);
+        const unsigned char* other_user_name = sqlite3_column_text(stmt, 1);
+        const unsigned char* last_updated = sqlite3_column_text(stmt, 2);
+
+        // int blank_space = 5;
+        // int start = user_id;
+        // while (start / 10 > 0) {
+        //     start = start / 10;
+        //     blank_space--;
+        // }
+        // std::string space(blank_space, ' ');
+        
+        ss << "CID: " << conversation_id << " With: " << other_user_name << " Updated: " << last_updated << std::endl; 
     }
 
     sqlite3_finalize(stmt);

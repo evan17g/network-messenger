@@ -4,6 +4,7 @@
 #pragma once
 
 std::string GetAccounts(sqlite3* db);
+std::string GetConversations(const int& user_id, sqlite3* db);
 
 void handle_client(int client_fd);
 Request RecieveRequest(int client_fd);
