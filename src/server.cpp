@@ -138,11 +138,15 @@ void handle_client(int client_fd) {
                     running = false;
                     break;
                 case GET_ACCOUNTS:
-                    response = GetAccounts(db);
+                    GetAccounts(response, db);
                     SendResponse(client_fd, response);
                     break;
                 case GET_CONVERSATIONS:
-                    response = GetConversations(req.user_id, db);
+                    GetConversations(response, req.user_id, db);
+                    SendResponse(client_fd, response);
+                    break;
+                case GET_CONVERSATION:
+                    GetConversation(response, req.user_id, req.conversation_id, db);
                     SendResponse(client_fd, response);
                     break;
                 default:
@@ -151,23 +155,29 @@ void handle_client(int client_fd) {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Client error: " << e.what() << std::endl;
+        std::cerr << "Server error: " << e.what() << std::endl;
     }
     sqlite3_close(db);
     close(client_fd);
 }
 
-std::string GetAccounts(sqlite3* db) {
+void GetAccounts(std::string& response, sqlite3* db) {
     std::stringstream ss;
+    std::string success = "true";
+    std::string message = "";
+    std::string data = "";
+
     ss << "----- Current Accounts -----" << std::endl;
 
     sqlite3_stmt* stmt;
     const char* sql = "SELECT * FROM Users;";
+    bool dbError = false;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        std::cerr << "Failed to prepare sql statement: " << sqlite3_errmsg(db) << std::endl;
+        dbError = true;
     }
 
+    bool atLeastOneRow = false;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         int user_id = sqlite3_column_int(stmt, 0);
         const unsigned char* user_name = sqlite3_column_text(stmt, 1);
@@ -180,17 +190,35 @@ std::string GetAccounts(sqlite3* db) {
         }
         std::string space(blank_space, ' ');
         
-        ss << "ID: " << user_id << space << " Username: " << user_name << std::endl; 
+        ss << "ID: " << user_id << space << " Username: " << user_name << std::endl;
+        atLeastOneRow = true;
     }
 
     sqlite3_finalize(stmt);
-    return ss.str();
+    data = ss.str();
+
+    if (dbError) {
+        success = "false";
+        message = "Database Error: " + std::string(sqlite3_errmsg(db));
+        data = "";
+    } else if (!atLeastOneRow) {
+        success = "false";
+        message = "There are no accounts to retrieve!";
+        data = "";
+    }
+
+    response = success + "|" + message + "|" + data;
 }
 
-std::string GetConversations(const int& user_id, sqlite3* db) {
+void GetConversations(std::string& response, const int& user_id, sqlite3* db) {
     std::stringstream ss;
+    std::string success = "true";
+    std::string message = "";
+    std::string data = "";
+    
     ss << "----- Conversations -----" << std::endl;
 
+    bool dbError = false;
     sqlite3_stmt* stmt;
     const char* sql = R"sql(
     SELECT 
@@ -206,19 +234,20 @@ std::string GetConversations(const int& user_id, sqlite3* db) {
     ORDER BY c.last_updated DESC;)sql";
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        std::cerr << "Failed to prepare sql statement: " << sqlite3_errmsg(db) << std::endl;
+        dbError = true;
     }
 
     if (sqlite3_bind_int(stmt, 1, user_id) != SQLITE_OK) {
-        std::cerr << "Failed to bind user_id to sql statement: " << sqlite3_errmsg(db) << std::endl;
+        dbError = true;
     }
     if (sqlite3_bind_int(stmt, 2, user_id) != SQLITE_OK) {
-        std::cerr << "Failed to bind user_id to sql statement: " << sqlite3_errmsg(db) << std::endl;
+        dbError = true;
     }
     if (sqlite3_bind_int(stmt, 3, user_id) != SQLITE_OK) {
-        std::cerr << "Failed to bind user_id to sql statement: " << sqlite3_errmsg(db) << std::endl;
+        dbError = true;
     }
 
+    bool atLeastOneRow = false;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         int conversation_id = sqlite3_column_int(stmt, 0);
         const unsigned char* other_user_name = sqlite3_column_text(stmt, 1);
@@ -233,10 +262,139 @@ std::string GetConversations(const int& user_id, sqlite3* db) {
         // std::string space(blank_space, ' ');
         
         ss << "CID: " << conversation_id << " With: " << other_user_name << " Updated: " << last_updated << std::endl; 
+        atLeastOneRow = true;
     }
 
     sqlite3_finalize(stmt);
-    return ss.str();
+    data = ss.str();
+
+    if (dbError) {
+        success = "false";
+        message = "Database Error: " + std::string(sqlite3_errmsg(db));
+        data = "";
+    } else if (!atLeastOneRow) {
+        success = "false";
+        message = "There are no conversations for the current account.";
+        data = "";
+    }
+
+    response = success + "|" + message + "|" + data;
+}
+
+void GetConversation(std::string& response, const int& user_id, const int& conversation_id, sqlite3* db) {
+    std::stringstream ss;
+    std::string success = "true";
+    std::string message = "";
+    std::string data = "";
+
+    bool dbError = false;
+    int other_user_id;
+    std::string other_user_name;
+    sqlite3_stmt* stmt1;
+    const char* sql1 = R"sql(
+    SELECT
+        CASE 
+            WHEN c.user_id_1 = ? THEN c.user_id_2
+            ELSE c.user_id_1
+        END AS other_user_id,
+
+        CASE
+            WHEN c.user_id_1 = ? THEN u2.user_name
+            ELSE u1.user_name
+        END AS other_user_name
+
+    FROM Conversations c
+    JOIN Users u1 ON c.user_id_1 = u1.user_id
+    JOIN Users u2 ON c.user_id_2 = u2.user_id
+    WHERE c.conversation_id = ?;
+    )sql";
+
+    if (sqlite3_prepare_v2(db, sql1, -1, &stmt1, nullptr) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_bind_int(stmt1, 1, user_id) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_bind_int(stmt1, 2, user_id) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_bind_int(stmt1, 3, conversation_id) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_step(stmt1) == SQLITE_ROW) {
+        other_user_id = sqlite3_column_int(stmt1, 0);
+        other_user_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt1, 1));
+    } else {
+        dbError = true;
+    }
+
+    sqlite3_finalize(stmt1);
+
+    std::string user_name;
+    sqlite3_stmt* stmt2;
+    const char* sql2 = R"sql(SELECT user_name FROM Users WHERE user_id = ?;)sql";
+
+    if (sqlite3_prepare_v2(db, sql2, -1, &stmt2, nullptr) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_bind_int(stmt2, 1, user_id) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_step(stmt2) == SQLITE_ROW) {
+        user_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt2, 0));
+    } else {
+        dbError = true;
+    }
+
+    sqlite3_finalize(stmt2);
+
+    ss << "----- Messaging with " << other_user_name << " -----" << std::endl;
+
+    sqlite3_stmt* stmt3;
+    const char* sql3 = R"sql(SELECT * FROM Messages WHERE conversation_id = ? ORDER BY created_at)sql";
+
+    if (sqlite3_prepare_v2(db, sql3, -1, &stmt3, nullptr) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_bind_int(stmt3, 1, conversation_id) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    bool atLeastOneRow = false;
+    while (sqlite3_step(stmt3) == SQLITE_ROW) {
+        int sender_id = sqlite3_column_int(stmt3, 1);
+        const unsigned char* message = sqlite3_column_text(stmt3, 3);
+
+        if (sender_id == user_id) {
+            ss << user_name << ": " << message << std::endl;
+        } else {
+            ss << other_user_name << ": " << message << std::endl;
+        }
+
+        atLeastOneRow = true;
+    }
+
+    sqlite3_finalize(stmt3);
+    data = ss.str();
+
+    if (dbError) {
+        success = "false";
+        message = "Database Error: " + std::string(sqlite3_errmsg(db));
+        data = "";
+    } else if (!atLeastOneRow) {
+        success = "false";
+        message = "There are no messages in the current conversation.";
+        data = "";
+    }
+
+    response = success + "|" + message + "|" + data;
 }
 
 void SetupSignalHandling() {

@@ -65,8 +65,8 @@ int main() {
 
     // now send and recieve
     SendRequest(sockfd, "GET_ACCOUNTS|0|0");
-    std::string response = RecieveResponse(sockfd);
-    std::cout << response << std::endl;
+    Response response = RecieveResponse(sockfd);
+    std::cout << response.data << std::endl;
 
     int user_id = 0;
     std::cout << "Please type the Account ID that you wish to use: ";
@@ -76,7 +76,25 @@ int main() {
     std::string request = "GET_CONVERSATIONS|" + std::to_string(user_id) + "|0";
     SendRequest(sockfd, request);
     response = RecieveResponse(sockfd);
-    std::cout << response << std::endl;
+    if (response.success) {
+        std::cout << response.data << std::endl;
+    } else {
+        std::cout << response.message << std::endl;
+    }
+
+    int conversation_id = 0;
+    std::cout << "Please type the Conversation ID that you wish to use: ";
+    std::cin >> conversation_id;
+    std::cout << std::endl;
+
+    request = "GET_CONVERSATION|" + std::to_string(user_id) + "|" + std::to_string(conversation_id);
+    SendRequest(sockfd, request);
+    response = RecieveResponse(sockfd);
+    if (response.success) {
+        std::cout << response.data << std::endl;
+    } else {
+        std::cout << response.message << std::endl;
+    }
 
     // close connections
     SendRequest(sockfd, "QUIT|0|0");
@@ -112,7 +130,7 @@ void SendRequest(int sockfd, const std::string& request) {
     }
 }
 
-std::string RecieveResponse(int sockfd) {
+Response RecieveResponse(int sockfd) {
     // read response header from client
     size_t response_length;
     size_t total_read = 0;
@@ -142,5 +160,5 @@ std::string RecieveResponse(int sockfd) {
         total_read += read;
     }
 
-    return res;
+    return Response::parseResponse(res);
 }

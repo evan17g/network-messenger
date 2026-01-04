@@ -64,8 +64,36 @@ struct Response {
     std::string data;
     std::string message;
 
-    Response(bool s = false, std::string d = "", std::string m = "") :
-            success(s), data(d), message(m) {}
+    Response(bool s, std::string m, std::string d) :
+            success(s), message(m), data(d) {}
+
+    static Response parseResponse(const std::string& buffer) {
+        std::vector<std::string> parts;
+        size_t pos = 0;
+        std::string str = buffer;
+        const std::string delimiter = "|";
+        
+        while ((pos = str.find(delimiter)) != std::string::npos) {
+            parts.push_back(str.substr(0, pos));
+            str.erase(0, pos + delimiter.length());
+        }
+        parts.push_back(str);
+
+        if (parts.size() != 3) {
+            return Response(false, "", "Failed to parse response.");
+        }
+
+        std::istringstream is(parts[0]);
+        bool success;
+        is >> std::boolalpha >> success;
+        if (is.fail()) {
+            return Response(false, "", "Failed to parse response.");
+        }
+        std::string message = parts[1];
+        std::string data = parts[2];
+        
+        return Response(success, message, data);
+    }
 };
 
 #endif
