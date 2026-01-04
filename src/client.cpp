@@ -63,38 +63,98 @@ int main() {
     std::cout << "Connected to server at " << server_ip << " on port " << port << "\n" << std::endl;
 
 
+    // client flow logic
+    STATE state = HOME;
+    int user_id;
+    int conversation_id;
+    while (true) {
+        if (state == CONVERSATION) {
+
+        } else { // state == HOME
+            int option;
+            std::cout << "-------------- Home Page ----------------" << std::endl;
+            std::cout << " 1. Get all current accounts" << std::endl;
+            std::cout << " 2. Create a new account" << std::endl;
+            std::cout << " 3. Get all conversations for an account" << std::endl;
+            std::cout << " 4. Create a new conversation for an account" << std::endl;
+            std::cout << " 5. Send messages" << std::endl;
+            std::cout << " 6. Quit" << std::endl;
+
+            std::cout << std::endl << "Please select an option from the menu: ";
+            std::cin >> option;
+
+            while (option < 1 || option > 6) {
+                std::cout << std::endl << "Invalid selection. Please try again: ";
+                std::cin >> option;
+            }
+
+            switch (option) {
+            case 1: {
+                SendRequest(sockfd, "GET_ACCOUNTS|0|0|");
+                Response getAcctResponse = RecieveResponse(sockfd);
+                if (getAcctResponse.success) {
+                    std::cout << getAcctResponse.data << std::endl;
+                } else {
+                    std::cout << getAcctResponse.message << std::endl;
+                }
+                break;
+            }
+
+            case 2: {
+                int new_user_id;
+                std::string new_user_name;
+                std::cout << "Enter the user_id you wish to claim (must not already be taken): ";
+                std::cin >> new_user_id;
+
+                std::cout << "Enter your username: ";
+                std::cin >> new_user_name;
+
+                std::string acct_request = "ADD_ACCOUNT|" + std::to_string(new_user_id) + "|0|" + new_user_name;
+                SendRequest(sockfd, acct_request);
+                Response addAcctResponse = RecieveResponse(sockfd);
+                if (addAcctResponse.success) {
+                    std::cout << addAcctResponse.data << std::endl;
+                } else {
+                    std::cout << addAcctResponse.message << std::endl;
+                }
+                break;
+            }
+
+            default:
+                break;
+            }
+        }
+    }
+
     // now send and recieve
-    SendRequest(sockfd, "GET_ACCOUNTS|0|0");
-    Response response = RecieveResponse(sockfd);
-    std::cout << response.data << std::endl;
 
-    int user_id = 0;
-    std::cout << "Please type the Account ID that you wish to use: ";
-    std::cin >> user_id;
-    std::cout << std::endl;
+    // int user_id = 0;
+    // std::cout << "Please type the Account ID that you wish to use: ";
+    // std::cin >> user_id;
+    // std::cout << std::endl;
 
-    std::string request = "GET_CONVERSATIONS|" + std::to_string(user_id) + "|0";
-    SendRequest(sockfd, request);
-    response = RecieveResponse(sockfd);
-    if (response.success) {
-        std::cout << response.data << std::endl;
-    } else {
-        std::cout << response.message << std::endl;
-    }
+    // std::string request = "GET_CONVERSATIONS|" + std::to_string(user_id) + "|0|";
+    // SendRequest(sockfd, request);
+    // response = RecieveResponse(sockfd);
+    // if (response.success) {
+    //     std::cout << response.data << std::endl;
+    // } else {
+    //     std::cout << response.message << std::endl;
+    // }
 
-    int conversation_id = 0;
-    std::cout << "Please type the Conversation ID that you wish to use: ";
-    std::cin >> conversation_id;
-    std::cout << std::endl;
+    // int conversation_id = 0;
+    // std::cout << "Please type the Conversation ID that you wish to use: ";
+    // std::cin >> conversation_id;
+    // std::cout << std::endl;
 
-    request = "GET_CONVERSATION|" + std::to_string(user_id) + "|" + std::to_string(conversation_id);
-    SendRequest(sockfd, request);
-    response = RecieveResponse(sockfd);
-    if (response.success) {
-        std::cout << response.data << std::endl;
-    } else {
-        std::cout << response.message << std::endl;
-    }
+    // request = "GET_CONVERSATION|" + std::to_string(user_id) + "|" + std::to_string(conversation_id) + "|";
+    // SendRequest(sockfd, request);
+    // response = RecieveResponse(sockfd);
+    // if (response.success) {
+    //     std::cout << response.data << std::endl;
+    // } else {
+    //     std::cout << response.message << std::endl;
+    // }
 
     // close connections
     SendRequest(sockfd, "QUIT|0|0");

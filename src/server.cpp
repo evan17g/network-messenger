@@ -141,6 +141,10 @@ void handle_client(int client_fd) {
                     GetAccounts(response, db);
                     SendResponse(client_fd, response);
                     break;
+                case ADD_ACCOUNT:
+                    AddAccount(response, req.user_id, req.user_name, db);
+                    SendResponse(client_fd, response);
+                    break;
                 case GET_CONVERSATIONS:
                     GetConversations(response, req.user_id, db);
                     SendResponse(client_fd, response);
@@ -210,7 +214,59 @@ void GetAccounts(std::string& response, sqlite3* db) {
     response = success + "|" + message + "|" + data;
 }
 
-void GetConversations(std::string& response, const int& user_id, sqlite3* db) {
+void AddAccount(std::string& response, const int user_id, std::string user_name, sqlite3* db) {
+    std::stringstream ss;
+    std::string success = "true";
+    std::string message = "";
+    std::string data = "";
+    bool dbError = false;
+
+    sqlite3_stmt* check_valid_stmt;
+    const char* check_valid_sql = "SELECT * FROM Users WHERE user_id = ?;";
+
+    if (sqlite3_prepare_v2(db, check_valid_sql, -1, &check_valid_stmt, nullptr) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_bind_int(check_valid_stmt, 1, user_id) != SQLITE_OK) {
+        dbError = true;
+    }
+
+    if (sqlite3_step(check_valid_stmt) != SQLITE_DONE) {
+        success = "false";
+        message = "This user_id is already taken!";
+        data = "";
+    } else {
+        sqlite3_stmt* stmt;
+        const char* sql = "INSERT INTO Users (user_id, user_name) VALUES (?, ?);";
+
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            dbError = true;
+        }
+
+        if (sqlite3_bind_int(stmt, 1, user_id) != SQLITE_OK) {
+            dbError = true;
+        }
+
+        if (sqlite3_bind_text(stmt, 2, user_name.c_str(), -1, SQLITE_STATIC) != SQLITE_OK) {
+            dbError = true;
+        }
+
+        if (sqlite3_step(stmt)) {
+            data = "Successfully created account with user_id: " + std::to_string(user_id) + " and name: " + user_name;
+        }
+    }
+
+    if (dbError) {
+        success = "false";
+        message = "Database Error: " + std::string(sqlite3_errmsg(db));
+        data = "";
+    }
+
+    response = success + "|" + message + "|" + data;
+}
+
+void GetConversations(std::string& response, const int user_id, sqlite3* db) {
     std::stringstream ss;
     std::string success = "true";
     std::string message = "";
@@ -281,7 +337,7 @@ void GetConversations(std::string& response, const int& user_id, sqlite3* db) {
     response = success + "|" + message + "|" + data;
 }
 
-void GetConversation(std::string& response, const int& user_id, const int& conversation_id, sqlite3* db) {
+void GetConversation(std::string& response, const int user_id, const int conversation_id, sqlite3* db) {
     std::stringstream ss;
     std::string success = "true";
     std::string message = "";

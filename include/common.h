@@ -8,6 +8,7 @@
 enum RequestType {
     QUIT,
     GET_ACCOUNTS,
+    ADD_ACCOUNT,
     GET_CONVERSATIONS,
     GET_CONVERSATION,
     SEND_MESSAGE
@@ -16,6 +17,7 @@ enum RequestType {
 RequestType parseRequestType(const std::string& s) {
     if (s == "QUIT") return QUIT;
     if (s == "GET_ACCOUNTS") return GET_ACCOUNTS;
+    if (s == "ADD_ACCOUNT") return ADD_ACCOUNT;
     if (s == "GET_CONVERSATIONS") return GET_CONVERSATIONS;
     if (s == "GET_CONVERSATION") return GET_CONVERSATION;
     if (s == "SEND_MESSAGE") return SEND_MESSAGE;
@@ -26,9 +28,10 @@ struct Request {
     RequestType type;
     int user_id;
     int conversation_id;
+    std::string user_name;
 
-    Request(RequestType t, int uid, int cid) : 
-            type(t), user_id(uid), conversation_id(cid) {}
+    Request(RequestType t, int uid, int cid, std::string un) : 
+            type(t), user_id(uid), conversation_id(cid), user_name(un) {}
 
     static Request parseRequest(const std::string& buffer) {
         std::vector<std::string> parts;
@@ -42,20 +45,21 @@ struct Request {
         }
         parts.push_back(str);
 
-        if (parts.size() != 3) {
-            return Request(QUIT, 0, 0); // Return a default QUIT request if parsing fails
+        if (parts.size() != 4) {
+            return Request(QUIT, 0, 0, ""); // Return a default QUIT request if parsing fails
         }
 
         RequestType type = parseRequestType(parts[0]);
 
         if (type < 0 || type > 4) {
-            return Request(QUIT, 0, 0); // Return a default QUIT request if parsing fails
+            return Request(QUIT, 0, 0, ""); // Return a default QUIT request if parsing fails
         }
         
         int user_id = std::stoi(parts[1]);
         int conversation_id = std::stoi(parts[2]);
+        std::string user_name = parts[3];
         
-        return Request(type, user_id, conversation_id);
+        return Request(type, user_id, conversation_id, user_name);
     }
 };
 
