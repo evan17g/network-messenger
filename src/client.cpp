@@ -27,10 +27,12 @@ bool response_handled;
 STATE state = HOME;
 int user_id = 0;
 int conversation_id = 0;
+std::string user_name = "";
 
 int main() {
     // Load variables from the .env file
     dotenv::init();
+    std::system("clear");
 
     const char* port = "7011";
     const char* server_ip = std::getenv("HOST_ADDR");
@@ -80,16 +82,18 @@ int main() {
 
 
     // client flow logic
+    bool running = true;
     try {
-        bool running = true;
         while (running) {
-            if (state == CONVERSATION) { 
+            if (state == CONVERSATION) {
+                std::cout << "[\033[32m" << user_name << "\033[0m]: ";
                 std::string message;
                 std::getline(std::cin, message);
 
                 if (message == ".home") {
                     std::unique_lock<std::mutex> state_lock(state_mutex);
                     state = HOME;
+                    std::system("clear");
                 } else {
                     Request r(SEND_MESSAGE, user_id, conversation_id, message);
                     std::unique_lock<std::mutex> response_lock(response_mutex);
@@ -200,7 +204,9 @@ int main() {
             }
         }
     } catch (const std::runtime_error& e) {
-        std::cerr << "Exception: " << e.what() << std::endl;
+        if (running != false) {
+            std::cerr << "Exception: " << e.what() << std::endl;
+        }
     }
 
     // close connections
@@ -308,7 +314,9 @@ void RecieveFromServer(int sockfd) {
 
         if (response.type == RESPONSE) {
             if (response.success) {
+                std::system("clear");
                 std::cout << response.data << std::endl;
+                user_name = response.message;
             } else {
                 std::cout << response.message << std::endl;
             }
@@ -323,10 +331,12 @@ void RecieveFromServer(int sockfd) {
                 SendRequest(sockfd, r.to_string());
                 Response response = RecieveResponse(sockfd);
                 if (response.success) {
-                    std::cout << response.data << std::endl;
+                    std::system("clear");
+                    std::cout << response.data << "\n[\033[32m" << user_name << "\033[0m]: " << std::flush;
                 } else {
-                    std::cout << response.message << std::endl;
+                    std::cout << response.message << "\n[\033[32m" << user_name << "\033[0m]: " << std::flush;
                 }
+                // std::cout << "[\033[32m" << user_name << "\033[0m]: ";
             }
         }
     }

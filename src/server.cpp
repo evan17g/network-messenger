@@ -476,9 +476,9 @@ void GetConversation(std::string& response, const int user_id, const int convers
         const unsigned char* message = sqlite3_column_text(stmt3, 3);
 
         if (sender_id == user_id) {
-            ss << user_name << ": " << message << std::endl;
+            ss << "[\033[32m" << user_name << "\033[0m]: " << message << std::endl;
         } else {
-            ss << other_user_name << ": " << message << std::endl;
+            ss << "[" << other_user_name << "]: " << message << std::endl;
         }
 
         atLeastOneRow = true;
@@ -487,13 +487,14 @@ void GetConversation(std::string& response, const int user_id, const int convers
     sqlite3_finalize(stmt3);
     data = ss.str();
 
+    message = user_name;
     if (dbError) {
         success = "false";
         message = "Server Error: Database query failed";
         data = "";
     } else if (!atLeastOneRow) {
         success = "true";
-        message = "";
+        message = user_name;
         data = "There are no messages in the current conversation.";
     }
 
