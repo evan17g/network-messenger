@@ -1,11 +1,11 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude
+CXXFLAGS = -g -std=c++17 -Wall -Wextra -Iinclude
 CC = gcc
 CFLAGS = -Wall -Wextra
 
 client:
 	$(CXX) $(CXXFLAGS) src/client.cpp out/sqlite3.o -o out/client
-	./out/client
+# 	./out/client
 
 server:
 	$(CXX) $(CXXFLAGS) src/server.cpp out/sqlite3.o -o out/server

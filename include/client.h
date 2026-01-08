@@ -10,3 +10,4 @@ enum STATE {
 
 void SendRequest(int sockfd, const std::string& request);
 Response RecieveResponse(int sockfd);
+void RecieveFromServer(int sockfd);

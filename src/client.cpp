@@ -8,12 +8,25 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <cstdlib>
+#include <mutex>
+#include <condition_variable>
+#include <exception>
+#include <thread>
 
 #include <sqlite3.h>
 #include <dotenv.h>
 #include "client.h"
 
 sqlite3* db;
+
+std::mutex response_mutex;
+std::mutex state_mutex;
+std::condition_variable cv;
+bool response_handled;
+
+STATE state = HOME;
+int user_id = 0;
+int conversation_id = 0;
 
 int main() {
     // Load variables from the .env file
@@ -60,104 +73,139 @@ int main() {
         throw std::runtime_error("Failed to connect with socket." + std::string(strerror(errno)));
     }
 
+    // set up thread to recieve
+    std::thread t(RecieveFromServer, sockfd);
+
     std::cout << "Connected to server at " << server_ip << " on port " << port << "\n" << std::endl;
 
 
     // client flow logic
-    STATE state = HOME;
-    int user_id;
-    int conversation_id;
-    while (true) {
-        if (state == CONVERSATION) {
+    try {
+        bool running = true;
+        while (running) {
+            if (state == CONVERSATION) { 
+                std::string message;
+                std::getline(std::cin, message);
 
-        } else { // state == HOME
-            int option;
-            std::cout << "-------------- Home Page ----------------" << std::endl;
-            std::cout << " 1. Get all current accounts" << std::endl;
-            std::cout << " 2. Create a new account" << std::endl;
-            std::cout << " 3. Get all conversations for an account" << std::endl;
-            std::cout << " 4. Create a new conversation for an account" << std::endl;
-            std::cout << " 5. Send messages" << std::endl;
-            std::cout << " 6. Quit" << std::endl;
+                if (message == ".home") {
+                    std::unique_lock<std::mutex> state_lock(state_mutex);
+                    state = HOME;
+                } else {
+                    Request r(SEND_MESSAGE, user_id, conversation_id, message);
+                    std::unique_lock<std::mutex> response_lock(response_mutex);
+                    response_handled = false;
+                    SendRequest(sockfd, r.to_string());
+                    cv.wait(response_lock, []{return response_handled;});
+                }
+            } else { // state == HOME
+                int option;
+                std::cout << "-------------- Home Page ----------------" << std::endl;
+                std::cout << " 1. Get all current accounts" << std::endl;
+                std::cout << " 2. Create a new account" << std::endl;
+                std::cout << " 3. Get all conversations for an account" << std::endl;
+                std::cout << " 4. Create a new conversation for an account" << std::endl;
+                std::cout << " 5. Send messages" << std::endl;
+                std::cout << " 6. Quit" << std::endl;
 
-            std::cout << std::endl << "Please select an option from the menu: ";
-            std::cin >> option;
-
-            while (option < 1 || option > 6) {
-                std::cout << std::endl << "Invalid selection. Please try again: ";
+                std::cout << std::endl << "Please select an option from the menu: ";
                 std::cin >> option;
-            }
 
-            switch (option) {
-            case 1: {
-                SendRequest(sockfd, "GET_ACCOUNTS|0|0|");
-                Response getAcctResponse = RecieveResponse(sockfd);
-                if (getAcctResponse.success) {
-                    std::cout << getAcctResponse.data << std::endl;
-                } else {
-                    std::cout << getAcctResponse.message << std::endl;
+                switch (option) {
+                case 1: {
+                    Request r(GET_ACCOUNTS, 0, 0, "");
+                    std::unique_lock<std::mutex> response_lock(response_mutex);
+                    response_handled = false;
+                    SendRequest(sockfd, r.to_string());
+                    cv.wait(response_lock, []{return response_handled;});
+                    break;
                 }
-                break;
-            }
 
-            case 2: {
-                int new_user_id;
-                std::string new_user_name;
-                std::cout << "Enter the user_id you wish to claim (must not already be taken): ";
-                std::cin >> new_user_id;
+                case 2: {
+                    int new_user_id;
+                    std::string new_user_name;
+                    std::cout << "Enter the user_id you wish to claim (must not already be taken): ";
+                    std::cin >> new_user_id;
 
-                std::cout << "Enter your username: ";
-                std::cin >> new_user_name;
+                    std::cout << "Enter your username: ";
+                    std::cin >> new_user_name;
 
-                std::string acct_request = "ADD_ACCOUNT|" + std::to_string(new_user_id) + "|0|" + new_user_name;
-                SendRequest(sockfd, acct_request);
-                Response addAcctResponse = RecieveResponse(sockfd);
-                if (addAcctResponse.success) {
-                    std::cout << addAcctResponse.data << std::endl;
-                } else {
-                    std::cout << addAcctResponse.message << std::endl;
+                    Request r(ADD_ACCOUNT, new_user_id, 0, new_user_name);
+                    std::unique_lock<std::mutex> response_lock(response_mutex);
+                    response_handled = false;
+                    SendRequest(sockfd, r.to_string());
+                    cv.wait(response_lock, []{return response_handled;});
+                    break;
                 }
-                break;
-            }
 
-            default:
-                break;
+                case 3: {
+                    int user_id = 0;
+                    std::cout << "Please type the Account ID that you wish to use: ";
+                    std::cin >> user_id;
+                    std::cout << std::endl;
+
+                    Request r(GET_CONVERSATIONS, user_id, 0, "");
+                    std::unique_lock<std::mutex> response_lock(response_mutex);
+                    response_handled = false;
+                    SendRequest(sockfd, r.to_string());
+                    cv.wait(response_lock, []{return response_handled;});
+                    break;
+                }
+
+                case 4: {
+                    int user_id = 0;
+                    std::cout << "Please type the Account ID that you wish to use: ";
+                    std::cin >> user_id;
+
+                    int other_user_id = 0;
+                    std::cout << "Please type the Account ID that you wish to message: ";
+                    std::cin >> other_user_id;
+                    std::cout << std::endl;
+
+                    Request r(ADD_CONVERSATION, user_id, other_user_id, "");
+                    std::unique_lock<std::mutex> response_lock(response_mutex);
+                    response_handled = false;
+                    SendRequest(sockfd, r.to_string());
+                    cv.wait(response_lock, []{return response_handled;});
+                    break;
+                }
+
+                case 5: {
+                    std::cout << "Select the account that you wish to use: ";
+                    std::cin >> user_id;
+
+                    std::cout << "Select the conversation that you wish to join: ";
+                    std::cin >> conversation_id;
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                    
+                    Request r(GET_CONVERSATION, user_id, conversation_id, "");
+                    std::unique_lock<std::mutex> response_lock(response_mutex);
+                    response_handled = false;
+                    SendRequest(sockfd, r.to_string());
+                    cv.wait(response_lock, []{return response_handled;});
+                    std::unique_lock<std::mutex> state_lock(state_mutex);
+                    state = CONVERSATION;
+                    break;
+                }
+
+                case 6: {
+                    running = false;
+                    std::cout << "Quitting application." << std::endl;
+                    break;
+                }
+
+                default:
+                    std::cout << "Invalid selection. Please try again." << std::endl;
+                    break;
+                }
             }
         }
+    } catch (const std::runtime_error& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
     }
 
-    // now send and recieve
-
-    // int user_id = 0;
-    // std::cout << "Please type the Account ID that you wish to use: ";
-    // std::cin >> user_id;
-    // std::cout << std::endl;
-
-    // std::string request = "GET_CONVERSATIONS|" + std::to_string(user_id) + "|0|";
-    // SendRequest(sockfd, request);
-    // response = RecieveResponse(sockfd);
-    // if (response.success) {
-    //     std::cout << response.data << std::endl;
-    // } else {
-    //     std::cout << response.message << std::endl;
-    // }
-
-    // int conversation_id = 0;
-    // std::cout << "Please type the Conversation ID that you wish to use: ";
-    // std::cin >> conversation_id;
-    // std::cout << std::endl;
-
-    // request = "GET_CONVERSATION|" + std::to_string(user_id) + "|" + std::to_string(conversation_id) + "|";
-    // SendRequest(sockfd, request);
-    // response = RecieveResponse(sockfd);
-    // if (response.success) {
-    //     std::cout << response.data << std::endl;
-    // } else {
-    //     std::cout << response.message << std::endl;
-    // }
-
     // close connections
-    SendRequest(sockfd, "QUIT|0|0");
+    SendRequest(sockfd, "QUIT|0|0|");
+    t.join();
     close(sockfd);
     sqlite3_close(db);
     return 0;
@@ -200,6 +248,7 @@ Response RecieveResponse(int sockfd) {
         if (read == -1) {
             throw std::runtime_error("Error receiving response header: " + std::string(strerror(errno)));
         } else if (read == 0) {
+            std::cout << "Message: " << response_length_buf << std::endl;
             throw std::runtime_error("Connection closed while receiving response");
         }
         total_read += read;
@@ -215,10 +264,70 @@ Response RecieveResponse(int sockfd) {
         if (read == -1) {
             throw std::runtime_error("Error receiving request: " + std::string(strerror(errno)));
         } else if (read == 0) {
+            std::cout << "Message: " << res << std::endl;
             throw std::runtime_error("Connection closed while recieving request");
         }
         total_read += read;
     }
 
     return Response::parseResponse(res);
+}
+
+void RecieveFromServer(int sockfd) {
+    while (true) {
+        // read response header from server
+        size_t response_length;
+        size_t total_read = 0;
+        char response_length_buf[4];
+        while (total_read < 4) {
+            ssize_t read = recv(sockfd, response_length_buf + total_read, 4 - total_read, 0);
+            if (read == -1) {
+                throw std::runtime_error("Error receiving output header: " + std::string(strerror(errno)));
+            } else if (read == 0) {
+                throw std::runtime_error("Connection closed while receiving output from server");
+            }
+            total_read += read;
+        }
+        memcpy(&response_length, response_length_buf, 4);
+        response_length = ntohl(response_length);
+
+        // now read response from server
+        std::string res(response_length, '\0');
+        total_read = 0;
+        while (total_read < response_length) {
+            ssize_t read = recv(sockfd, &res[0] + total_read, response_length - total_read, 0);
+            if (read == -1) {
+                throw std::runtime_error("Error receiving output: " + std::string(strerror(errno)));
+            } else if (read == 0) {
+                throw std::runtime_error("Connection closed while recieving output from server");
+            }
+            total_read += read;
+        }
+
+        Response response = Response::parseResponse(res);
+
+        if (response.type == RESPONSE) {
+            if (response.success) {
+                std::cout << response.data << std::endl;
+            } else {
+                std::cout << response.message << std::endl;
+            }
+            std::unique_lock<std::mutex> lock(response_mutex);
+            response_handled = true;
+            cv.notify_one();
+        } else if (response.type == BROADCAST) {
+            std::unique_lock<std::mutex> state_lock(state_mutex);
+            if (state == CONVERSATION && conversation_id == response.conversation_id) {
+                // need to update screen
+                Request r(UPDATE_CONVERSATION, user_id, conversation_id, "");
+                SendRequest(sockfd, r.to_string());
+                Response response = RecieveResponse(sockfd);
+                if (response.success) {
+                    std::cout << response.data << std::endl;
+                } else {
+                    std::cout << response.message << std::endl;
+                }
+            }
+        }
+    }
 }

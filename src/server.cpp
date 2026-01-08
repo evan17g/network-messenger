@@ -13,12 +13,15 @@
 #include <vector>
 #include <atomic>
 #include <csignal>
+#include <mutex>
 
 #include <sqlite3.h>
 #include "server.h"
 
 volatile sig_atomic_t shutdown_requested = 0;
 int listen_sockfd = -1;
+std::vector<int> clients;
+std::mutex clients_mutex;
 
 int main() {
     // setup signal handling
@@ -87,6 +90,11 @@ int main() {
             continue;
         }
 
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.push_back(fd);
+        }
+
         std::thread t(handle_client, fd);
         threads.push_back(std::move(t));
     }
@@ -130,36 +138,67 @@ void handle_client(int client_fd) {
             }
 
             // now can use fd to send and recieve data
-            Request req = RecieveRequest(client_fd);
+            try {
+                Request req = RecieveRequest(client_fd);
+            
+                std::string response;
+                switch (req.type) {
+                    case QUIT:
+                        running = false;
+                        break;
+                    case GET_ACCOUNTS:
+                        GetAccounts(response, db);
+                        SendResponse(client_fd, response);
+                        break;
+                    case ADD_ACCOUNT:
+                        AddAccount(response, req.user_id, req.user_name, db);
+                        SendResponse(client_fd, response);
+                        break;
+                    case GET_CONVERSATIONS:
+                        GetConversations(response, req.user_id, db);
+                        SendResponse(client_fd, response);
+                        break;
+                    case GET_CONVERSATION:
+                        response = "\nYou are now entering a conversation. Type \".home\" to return to the menu screen.\n";
+                        GetConversation(response, req.user_id, req.conversation_id, db);
+                        SendResponse(client_fd, response);
+                        break;
+                    case ADD_CONVERSATION:
+                        AddConversation(response, req.user_id, req.conversation_id, db);
+                        SendResponse(client_fd, response);
+                        break;
+                    case SEND_MESSAGE:
+                        SendMessage(response, req.user_id, req.conversation_id, req.user_name, db);
+                        SendResponse(client_fd, response);
+                        SendBroadcast(client_fd, req.conversation_id);
+                        break;
+                    case UPDATE_CONVERSATION:
+                        GetConversation(response, req.user_id, req.conversation_id, db);
+                        SendResponse(client_fd, response);
+                        break;
+                    default:
+                        running = false;
+                        break;
+                }
 
-            std::string response;
-            switch (req.type) {
-                case QUIT:
-                    running = false;
-                    break;
-                case GET_ACCOUNTS:
-                    GetAccounts(response, db);
-                    SendResponse(client_fd, response);
-                    break;
-                case ADD_ACCOUNT:
-                    AddAccount(response, req.user_id, req.user_name, db);
-                    SendResponse(client_fd, response);
-                    break;
-                case GET_CONVERSATIONS:
-                    GetConversations(response, req.user_id, db);
-                    SendResponse(client_fd, response);
-                    break;
-                case GET_CONVERSATION:
-                    GetConversation(response, req.user_id, req.conversation_id, db);
-                    SendResponse(client_fd, response);
-                    break;
-                default:
-                    running = false;
-                    break;
+            } catch (const InvalidRequestException& e) {
+                std::string response = "fail|Error: " + std::string(e.what()) + "|";
+                SendResponse(client_fd, response);
             }
+
         }
     } catch (const std::exception& e) {
         std::cerr << "Server error: " << e.what() << std::endl;
+    }
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        for (auto it = clients.begin(); it != clients.end();) {
+            if (*it == client_fd) {
+                it = clients.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
     sqlite3_close(db);
     close(client_fd);
@@ -211,7 +250,7 @@ void GetAccounts(std::string& response, sqlite3* db) {
         data = "";
     }
 
-    response = success + "|" + message + "|" + data;
+    response = "RESPONSE|" + success + "|" + message + "|" + data + "|0";
 }
 
 void AddAccount(std::string& response, const int user_id, std::string user_name, sqlite3* db) {
@@ -255,6 +294,7 @@ void AddAccount(std::string& response, const int user_id, std::string user_name,
         if (sqlite3_step(stmt)) {
             data = "Successfully created account with user_id: " + std::to_string(user_id) + " and name: " + user_name;
         }
+        sqlite3_finalize(stmt);
     }
 
     if (dbError) {
@@ -263,7 +303,7 @@ void AddAccount(std::string& response, const int user_id, std::string user_name,
         data = "";
     }
 
-    response = success + "|" + message + "|" + data;
+    response = "RESPONSE|" + success + "|" + message + "|" + data + "|0";
 }
 
 void GetConversations(std::string& response, const int user_id, sqlite3* db) {
@@ -334,7 +374,7 @@ void GetConversations(std::string& response, const int user_id, sqlite3* db) {
         data = "";
     }
 
-    response = success + "|" + message + "|" + data;
+    response = "RESPONSE|" + success + "|" + message + "|" + data + "|0";
 }
 
 void GetConversation(std::string& response, const int user_id, const int conversation_id, sqlite3* db) {
@@ -342,6 +382,13 @@ void GetConversation(std::string& response, const int user_id, const int convers
     std::string success = "true";
     std::string message = "";
     std::string data = "";
+
+    if (!response.empty()) {
+        ss << response << std::endl;
+        std::cout << response << std::endl;
+    } else {
+        std::cout << "supposedly empty" << std::endl;
+    }
 
     bool dbError = false;
     int other_user_id;
@@ -442,15 +489,136 @@ void GetConversation(std::string& response, const int user_id, const int convers
 
     if (dbError) {
         success = "false";
-        message = "Database Error: " + std::string(sqlite3_errmsg(db));
+        message = "Server Error: Database query failed";
         data = "";
     } else if (!atLeastOneRow) {
-        success = "false";
-        message = "There are no messages in the current conversation.";
-        data = "";
+        success = "true";
+        message = "";
+        data = "There are no messages in the current conversation.";
     }
 
-    response = success + "|" + message + "|" + data;
+    response = "RESPONSE|" + success + "|" + message + "|" + data + "|0";
+}
+
+void AddConversation(std::string& response, const int user_id, const int other_user_id, sqlite3* db) {
+    std::string success = "true";
+    std::string message = "";
+    std::string data = "";
+    sqlite3_stmt* valid_id_stmt = nullptr;
+    sqlite3_stmt* check_valid_stmt = nullptr;
+    sqlite3_stmt* stmt = nullptr;
+
+    bool dbError = false;
+
+    int u1 = std::min(user_id, other_user_id);
+    int u2 = std::max(user_id, other_user_id);
+
+    if (u1 == u2) {
+        success = "false";
+        message = "The accound ID's are the same!";
+    } else {
+        const char* valid_id_sql = "SELECT COUNT(*) FROM Users WHERE user_id = ? OR user_id = ?;";
+
+        if (sqlite3_prepare_v2(db, valid_id_sql, -1, &valid_id_stmt, nullptr) != SQLITE_OK) {
+            goto db_error;
+        }
+
+        if (sqlite3_bind_int(valid_id_stmt, 1, u1) != SQLITE_OK) {
+            goto db_error;
+        }
+        if (sqlite3_bind_int(valid_id_stmt, 2, u2) != SQLITE_OK) {
+            goto db_error;
+        }
+
+        int count = 0;
+        if (sqlite3_step(valid_id_stmt) == SQLITE_ROW) {
+            count = sqlite3_column_int(valid_id_stmt, 0);
+        }
+
+        sqlite3_finalize(valid_id_stmt);
+
+        if (count != 2) {
+            success = "false";
+            message = "One or both of the account ID's is invalid!";
+        } else {
+            const char* check_valid_sql = R"sql(
+            SELECT 1 FROM Conversations 
+            WHERE (user_id_1 = ? AND user_id_2 = ?)
+            OR (user_id_1 = ? AND user_id_2 = ?)
+            LIMIT 1;)sql";
+
+            if (sqlite3_prepare_v2(db, check_valid_sql, -1, &check_valid_stmt, nullptr) != SQLITE_OK) {
+                goto db_error;
+            }
+
+            if (sqlite3_bind_int(check_valid_stmt, 1, u1) != SQLITE_OK) {goto db_error;}
+            if (sqlite3_bind_int(check_valid_stmt, 2, u2) != SQLITE_OK) {goto db_error;}
+            if (sqlite3_bind_int(check_valid_stmt, 3, u2) != SQLITE_OK) {goto db_error;}
+            if (sqlite3_bind_int(check_valid_stmt, 4, u1) != SQLITE_OK) {goto db_error;}
+
+            int rc = sqlite3_step(check_valid_stmt);
+            if (rc == SQLITE_ROW) {
+                success = "false";
+                message = "There already exists a conversation between these accounts!";
+                data = "";
+            } else if (rc == SQLITE_DONE) {
+                const char* sql = "INSERT INTO Conversations (user_id_1, user_id_2, last_updated) VALUES (?, ?, CURRENT_TIMESTAMP);";
+
+                if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+                    goto db_error;
+                }
+
+                if (sqlite3_bind_int(stmt, 1, u1) != SQLITE_OK) {goto db_error;}
+                if (sqlite3_bind_int(stmt, 2, u2) != SQLITE_OK) {goto db_error;}
+
+                if (sqlite3_step(stmt) == SQLITE_DONE) {
+                    data = "Successfully created a conversation between user " + std::to_string(u1) + " and user " + std::to_string(u2);
+                }
+                sqlite3_finalize(stmt);
+            } else {
+                goto db_error;
+            }
+
+            sqlite3_finalize(check_valid_stmt);
+        }
+    }
+
+    response = "RESPONSE|" + success + "|" + message + "|" + data + "|0";
+
+    return;
+
+    db_error:
+        if (valid_id_stmt) sqlite3_finalize(valid_id_stmt);
+        if (check_valid_stmt) sqlite3_finalize(check_valid_stmt);
+        if (stmt) sqlite3_finalize(stmt);
+
+        response = "RESPONSE|false|Server Error: Database query failed||0";
+        return;
+}
+
+void SendMessage(std::string& response, const int user_id, const int conversation_id, const std::string& message, sqlite3* db) {    
+    sqlite3_stmt* stmt;
+    const char* sql = "INSERT INTO Messages (sender_id, conversation_id, message) VALUES (?, ?, ?);";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    sqlite3_bind_int(stmt, 1, user_id);
+    sqlite3_bind_int(stmt, 2, conversation_id);
+    sqlite3_bind_text(stmt, 3, message.c_str(), -1, SQLITE_STATIC);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    GetConversation(response, user_id, conversation_id, db);
+}
+
+void SendBroadcast(int client_fd, int conversation_id) {
+    {
+       std::lock_guard<std::mutex> lock(clients_mutex);
+       for (int i=0; i<clients.size(); ++i) {
+        if (clients[i] != client_fd) {
+            Response r(BROADCAST, true, "", "", conversation_id);
+            SendResponse(clients[i], r.to_string());
+        }
+       } 
+    }
 }
 
 void SetupSignalHandling() {
