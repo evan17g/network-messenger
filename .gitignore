@@ -1,5 +1,5 @@
 .env
 out/
 .vscode
-.db
+database.db
 notes.txt
